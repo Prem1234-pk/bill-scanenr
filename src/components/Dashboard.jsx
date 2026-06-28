@@ -33,6 +33,10 @@ export default function Dashboard({ records, setRecords }) {
     XLSX.writeFile(wb, 'bills_export.xlsx')
   }
 
+  const removeRecord = (id) => {
+    setRecords((prev) => prev.filter((r) => r.id !== id))
+  }
+
   const clearAll = () => {
     if (confirm('Clear all scanned records from this browser?')) {
       setRecords([])
@@ -72,6 +76,7 @@ export default function Dashboard({ records, setRecords }) {
               <th>Date</th>
               <th>Total</th>
               <th>Raw text (preview)</th>
+              <th />
             </tr>
           </thead>
           <tbody>
@@ -82,7 +87,12 @@ export default function Dashboard({ records, setRecords }) {
                 <td>{r.fields.invoice || ''}</td>
                 <td>{r.fields.date || ''}</td>
                 <td>{r.fields.total || ''}</td>
-                <td><pre style={{maxWidth:300,overflow:'auto'}}>{String(r.rawText).slice(0,150)}</pre></td>
+                <td><pre style={{ maxWidth: 300, overflow: 'auto' }}>{String(r.rawText).slice(0, 150)}</pre></td>
+                <td>
+                  <button type="button" onClick={() => removeRecord(r.id)}>
+                    Delete
+                  </button>
+                </td>
               </tr>
             ))}
           </tbody>

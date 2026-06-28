@@ -9,6 +9,14 @@ export default function OCRUploader({ onRecord }) {
   const samples = [
     { name: 'Acme Corp - Sample', url: '/samples/acme-bill.svg' },
     { name: 'Beta Ltd - Sample', url: '/samples/beta-bill.svg' },
+    { name: 'Gamma Inc - Sample', url: '/samples/gamma-bill.svg' },
+    { name: 'Delta Co - Sample', url: '/samples/delta-bill.svg' },
+    { name: 'Epsilon LLC - Sample', url: '/samples/epsilon-bill.svg' },
+    { name: 'Zeta Systems - Sample', url: '/samples/zeta-bill.svg' },
+    { name: 'Theta Enterprises - Sample', url: '/samples/theta-bill.svg' },
+    { name: 'Iota Logistics - Sample', url: '/samples/iota-bill.svg' },
+    { name: 'Kappa Holdings - Sample', url: '/samples/kappa-bill.svg' },
+    { name: 'Lambda Products - Sample', url: '/samples/lambda-bill.svg' },
   ]
 
   const handleFile = (e) => {
@@ -16,25 +24,55 @@ export default function OCRUploader({ onRecord }) {
     if (f) setFile(URL.createObjectURL(f))
   }
 
+  const loadImageElement = async (src) => {
+    return new Promise((resolve, reject) => {
+      const img = new Image()
+      img.crossOrigin = 'anonymous'
+      img.onload = () => resolve(img)
+      img.onerror = reject
+      img.src = src
+    })
+  }
+
+  const ensureRasterImage = async (src) => {
+    if (!src.toLowerCase().endsWith('.svg')) {
+      return src
+    }
+    const img = await loadImageElement(src)
+    const canvas = document.createElement('canvas')
+    canvas.width = img.naturalWidth || 800
+    canvas.height = img.naturalHeight || 600
+    const ctx = canvas.getContext('2d')
+    ctx.drawImage(img, 0, 0)
+    return canvas
+  }
+
   const runOCR = async (imageUrl) => {
+    let worker
     try {
       setBusy(true)
       setProgress(0)
-      const worker = Tesseract.createWorker({
+      const image = await ensureRasterImage(imageUrl)
+      worker = await Tesseract.createWorker({
         logger: (m) => {
           if (m.status === 'recognizing text' && m.progress) {
             setProgress(Math.round(m.progress * 100))
           }
         },
       })
-      await worker.load()
       await worker.loadLanguage('eng')
       await worker.initialize('eng')
-      const { data } = await worker.recognize(imageUrl)
-      await worker.terminate()
+      const { data } = await worker.recognize(image)
       setProgress(100)
       return data.text
     } finally {
+      if (worker) {
+        try {
+          await worker.terminate()
+        } catch (err) {
+          console.warn('Failed to terminate worker', err)
+        }
+      }
       setBusy(false)
     }
   }
