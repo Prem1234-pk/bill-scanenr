@@ -44,7 +44,9 @@ export default function OCRUploader({ onRecord }) {
     canvas.height = img.naturalHeight || 600
     const ctx = canvas.getContext('2d')
     ctx.drawImage(img, 0, 0)
-    return canvas
+
+    const dataUrl = canvas.toDataURL('image/png')
+    return dataUrl
   }
 
   const runOCR = async (imageUrl) => {

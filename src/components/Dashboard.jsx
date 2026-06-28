@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import Select from 'react-select'
 import * as XLSX from 'xlsx'
 
@@ -10,36 +10,263 @@ export default function Dashboard({ records, setRecords }) {
     return s.map((c) => ({ label: c, value: c }))
   }, [records])
 
+  const [excelHandle, setExcelHandle] = useState(null)
+  const [excelMessage, setExcelMessage] = useState('No Excel DB connected')
+  const [useLocalExcelDB, setUseLocalExcelDB] = useState(false)
+
   const filtered = useMemo(() => {
     if (!selectedCompanies || selectedCompanies.length === 0) return records
     const vals = selectedCompanies.map((c) => c.value)
     return records.filter((r) => vals.includes(r.company))
   }, [records, selectedCompanies])
 
-  const exportExcel = () => {
-    // Build workbook with one sheet per company (or per company+type)
+  const verifyPermission = async (handle, mode = 'readwrite') => {
+    if (!handle.requestPermission || !handle.queryPermission) return true
+    const options = { mode }
+    if ((await handle.queryPermission(options)) === 'granted') return true
+    if ((await handle.requestPermission(options)) === 'granted') return true
+    return false
+  }
+
+  const createEmptyWorkbook = () => {
     const wb = XLSX.utils.book_new()
+    const ws = XLSX.utils.aoa_to_sheet([['company', 'type', 'invoice', 'date', 'total', 'rawText']])
+    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+    return wb
+  }
+
+  const saveWorkbookToHandle = async (handle, wb) => {
+    if (!handle) return
+    if (!(await verifyPermission(handle, 'readwrite'))) {
+      alert('Permission denied for Excel DB file.')
+      throw new Error('Excel DB handle write permission denied')
+    }
+    const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+    const blob = new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    try {
+      const writable = await handle.createWritable({ keepExistingData: false })
+      await writable.write(blob)
+      await writable.close()
+    } catch (error) {
+      console.error('Failed to write Excel DB file handle', error)
+      alert('Could not save Excel DB. Close the file in Excel and try again.')
+      throw error
+    }
+  }
+
+  const saveWorkbookToLocalStorage = async (wb) => {
+    if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
+      wb = createEmptyWorkbook()
+    }
+    const base64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' })
+    localStorage.setItem('bill_scanner_excel_db', base64)
+    setExcelMessage('Excel DB synced to local storage')
+  }
+
+  const saveWorkbook = async (wb) => {
+    if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
+      wb = createEmptyWorkbook()
+    }
+    if (excelHandle) {
+      await saveWorkbookToHandle(excelHandle, wb)
+      setExcelMessage(`Excel DB synced to ${excelHandle.name || 'file'}`)
+    } else {
+      await saveWorkbookToLocalStorage(wb)
+    }
+  }
+
+  const persistRecordsToExcel = async (items) => {
     const groups = {}
-    for (const r of records) {
+    for (const r of items) {
       const sheetName = `${r.company}`.slice(0, 31)
       if (!groups[sheetName]) groups[sheetName] = []
-      const row = { ...r.fields, rawText: r.rawText }
-      groups[sheetName].push(row)
+      groups[sheetName].push({ company: r.company, type: r.type, ...r.fields, rawText: r.rawText })
     }
-    for (const [sheetName, rows] of Object.entries(groups)) {
-      const ws = XLSX.utils.json_to_sheet(rows)
-      XLSX.utils.book_append_sheet(wb, ws, sheetName)
+    let wb
+    if (Object.keys(groups).length === 0) {
+      wb = createEmptyWorkbook()
+    } else {
+      wb = XLSX.utils.book_new()
+      for (const [sheetName, rows] of Object.entries(groups)) {
+        const ws = XLSX.utils.json_to_sheet(rows)
+        XLSX.utils.book_append_sheet(wb, ws, sheetName)
+      }
     }
-    XLSX.writeFile(wb, 'bills_export.xlsx')
+    try {
+      await saveWorkbook(wb)
+    } catch (error) {
+      console.warn('Failed to persist Excel workbook', error)
+      setExcelMessage('Failed to sync Excel DB. Close the file in Excel and try again.')
+      throw error
+    }
   }
 
-  const removeRecord = (id) => {
-    setRecords((prev) => prev.filter((r) => r.id !== id))
+  useEffect(() => {
+    if (!excelHandle && !useLocalExcelDB) return
+    persistRecordsToExcel(records)
+  }, [records, excelHandle, useLocalExcelDB])
+
+  const workbookToRecords = (wb) => {
+    const result = []
+    wb.SheetNames.forEach((sheetName) => {
+      const ws = wb.Sheets[sheetName]
+      const rows = XLSX.utils.sheet_to_json(ws, { defval: '' })
+      rows.forEach((row) => {
+        result.push({
+          id: `${Date.now()}-${Math.random()}`,
+          company: row.company || sheetName,
+          type: row.type || 'excel',
+          fields: {
+            invoice: row.invoice || '',
+            date: row.date || '',
+            total: row.total || '',
+          },
+          rawText: row.rawText || '',
+        })
+      })
+    })
+    return result
   }
 
-  const clearAll = () => {
+  const loadWorkbookFromHandle = async (handle) => {
+    const file = await handle.getFile()
+    if (!file || file.size === 0) {
+      return null
+    }
+    const data = await file.arrayBuffer()
+    return XLSX.read(data, { type: 'array' })
+  }
+
+  const handleOpenExcelDB = async () => {
+    const openPickerAvailable = !!window.showOpenFilePicker
+    const savePickerAvailable = !!window.showSaveFilePicker
+
+    if (openPickerAvailable) {
+      try {
+        const [handle] = await window.showOpenFilePicker({
+          multiple: false,
+          types: [
+            {
+              description: 'Excel Workbook',
+              accept: {
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+              },
+            },
+          ],
+        })
+        if (!handle) return
+        const wb = await loadWorkbookFromHandle(handle)
+        if (!wb) {
+          const empty = createEmptyWorkbook()
+          await saveWorkbookToHandle(handle, empty)
+          setExcelHandle(handle)
+          setUseLocalExcelDB(false)
+          setRecords([])
+          syncExcelStatus(true)
+          setExcelMessage(`Created new Excel DB: ${handle.name || 'bills_db.xlsx'}`)
+          return
+        }
+        const imported = workbookToRecords(wb)
+        setExcelHandle(handle)
+        setUseLocalExcelDB(false)
+        syncExcelStatus(true)
+        if (records.length > 0 && !confirm('Replace existing records with imported Excel DB records?')) {
+          setRecords((prev) => [...imported, ...prev])
+        } else {
+          setRecords(imported)
+        }
+        setExcelMessage(`Loaded Excel DB: ${handle.name || 'file'}`)
+      } catch (err) {
+        console.warn('Excel DB open canceled or failed', err)
+      }
+      return
+    }
+
+    if (savePickerAvailable) {
+      try {
+        const handle = await window.showSaveFilePicker({
+          suggestedName: 'bills_db.xlsx',
+          types: [
+            {
+              description: 'Excel Workbook',
+              accept: {
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+              },
+            },
+          ],
+        })
+        if (!handle) return
+        const wb = await loadWorkbookFromHandle(handle)
+        if (!wb) {
+          const empty = createEmptyWorkbook()
+          await saveWorkbookToHandle(handle, empty)
+          setExcelHandle(handle)
+          setUseLocalExcelDB(false)
+          setRecords([])
+          syncExcelStatus(true)
+          setExcelMessage(`Created new Excel DB: ${handle.name || 'bills_db.xlsx'}`)
+          return
+        }
+        const imported = workbookToRecords(wb)
+        setExcelHandle(handle)
+        setUseLocalExcelDB(false)
+        syncExcelStatus(true)
+        if (records.length > 0 && !confirm('Replace existing records with imported Excel DB records?')) {
+          setRecords((prev) => [...imported, ...prev])
+        } else {
+          setRecords(imported)
+        }
+        setExcelMessage(`Loaded Excel DB: ${handle.name || 'file'}`)
+      } catch (err) {
+        console.warn('Excel DB open canceled or failed', err)
+      }
+      return
+    }
+
+    const stored = localStorage.getItem('bill_scanner_excel_db')
+    setExcelHandle(null)
+    setUseLocalExcelDB(true)
+    if (!stored) {
+      const wb = createEmptyWorkbook()
+      await saveWorkbookToLocalStorage(wb)
+      setRecords([])
+      setExcelMessage('Created new local Excel DB')
+      return
+    }
+    const wb = XLSX.read(stored, { type: 'base64' })
+    const imported = workbookToRecords(wb)
+    if (records.length > 0 && !confirm('Replace existing records with local Excel DB records?')) {
+      setRecords((prev) => [...imported, ...prev])
+    } else {
+      setRecords(imported)
+    }
+    setExcelMessage('Loaded local Excel DB')
+  }
+
+  const removeRecord = async (id) => {
+    const nextRecords = records.filter((r) => r.id !== id)
+    setRecords(nextRecords)
+    if (excelHandle || useLocalExcelDB) {
+      try {
+        await persistRecordsToExcel(nextRecords)
+        setExcelMessage(`Excel DB synced after deleting record from ${excelHandle?.name || 'local storage'}`)
+      } catch (error) {
+        console.warn('Failed to persist Excel after delete', error)
+      }
+    }
+  }
+
+  const clearAll = async () => {
     if (confirm('Clear all scanned records from this browser?')) {
       setRecords([])
+      if (excelHandle || useLocalExcelDB) {
+        try {
+          await persistRecordsToExcel([])
+          setExcelMessage(`Excel DB synced after clearing all records from ${excelHandle?.name || 'local storage'}`)
+        } catch (error) {
+          console.warn('Failed to persist Excel after clear', error)
+        }
+      }
     }
   }
 
@@ -57,12 +284,9 @@ export default function Dashboard({ records, setRecords }) {
           />
         </div>
 
-        <div>
-          <button onClick={exportExcel} disabled={records.length === 0}>Export Excel (sheets per company)</button>
-        </div>
-
-        <div>
-          <button onClick={clearAll} disabled={records.length === 0}>Clear</button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+          <button type="button" onClick={handleOpenExcelDB}>Use Excel DB</button>
+          <span style={{ fontSize: '0.9rem', color: '#555' }}>{excelMessage}</span>
         </div>
       </div>
 

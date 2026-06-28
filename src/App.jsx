@@ -6,17 +6,27 @@ export default function App() {
   const [records, setRecords] = useState([]) // {id, company, type, fields}
 
   useEffect(() => {
-    // load demo records from localStorage if present
-    const saved = localStorage.getItem('bill_scanner_records')
-    if (saved) setRecords(JSON.parse(saved))
+    localStorage.removeItem('bill_scanner_records')
   }, [])
 
-  useEffect(() => {
-    localStorage.setItem('bill_scanner_records', JSON.stringify(records))
-  }, [records])
-
   const addRecord = (rec) => {
-    setRecords((r) => [{ id: Date.now().toString(), ...rec }, ...r])
+    const normalizedCompany = String(rec.company || '').trim()
+    const normalizedInvoice = String(rec.fields?.invoice || '').trim()
+
+    setRecords((prev) => {
+      if (
+        normalizedCompany &&
+        normalizedInvoice &&
+        prev.some(
+          (r) =>
+            String(r.company || '').trim() === normalizedCompany &&
+            String(r.fields?.invoice || '').trim() === normalizedInvoice
+        )
+      ) {
+        return prev
+      }
+      return [{ id: Date.now().toString(), ...rec }, ...prev]
+    })
   }
 
   return (

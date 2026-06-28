@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Bill Scanner App</title>
+  <style>
+    body { margin: 0; font-family: Arial, sans-serif; background: #f6f7fb; color: #222; }
+    .app { max-width: 1200px; margin: 0 auto; padding: 1rem; }
+    header, footer { padding: 1rem 0; }
+    h1 { margin: 0 0 0.25rem; }
+    .panel { background: #fff; border: 1px solid #ddd; border-radius: 10px; padding: 1rem; margin-bottom: 1rem; box-shadow: 0 2px 10px rgba(0,0,0,.04); }
+    .controls { display: grid; gap: 1rem; grid-template-columns: 1fr 1fr 1fr; align-items: end; }
+    label { display: block; font-weight: 600; margin-bottom: 0.5rem; }
+    select, input[type=file], button { width: 100%; padding: 0.75rem 1rem; border-radius: 6px; border: 1px solid #ccc; background: #fff; font-size: 1rem; }
+    button { cursor: pointer; border: 1px solid #2f6bff; background: #2f6bff; color: #fff; transition: background .2s ease; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    button:hover:not(:disabled) { background: #2558d3; }
+    .preview img { width: 100%; max-height: 360px; object-fit: contain; border-radius: 6px; border: 1px solid #ddd; }
+    .table-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
+    th, td { text-align: left; padding: 0.75rem; border-bottom: 1px solid #eee; }
+    th { background: #fafafa; font-weight: 700; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+    .status-line { margin-top: 0.5rem; color: #555; font-size: 0.95rem; }
+    .row-actions { display: flex; gap: 0.5rem; justify-content: flex-end; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/tesseract.js@4.1.1/dist/tesseract.min.js"></script>
+  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+  <script>
+    const { useState, useEffect, useMemo } = React
+
+    const parseInvoice = (t) => (t.match(/(?:Invoice|Inv(?:oice)?)\s*(?:#|No\.?|No)?\s*[:#]?\s*(\S+)/i) || [])[1] || ''
+    const parseDate = (t) => (t.match(/(?:Date|Bill Date)\s*[:\-]?\s*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i) || [])[1] || ''
+    const parseTotal = (t) => (t.match(/(?:Total|Amount Due)\s*[:\-]?\s*\$?\s*([0-9,.]+)/i) || [])[1] || ''
+
+    const parsers = {
+      acme: {
+        company: 'Acme Corp',
+        type: 'acme_invoice',
+        score: (t) => /\bACME\b/.test(t.toUpperCase()) ? 2 : 0,
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+      beta: {
+        company: 'Beta Ltd',
+        type: 'beta_invoice',
+        score: (t) => /\bBETA\b/.test(t.toUpperCase()) ? 2 : 0,
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+      gamma: {
+        company: 'Gamma Inc',
+        type: 'gamma_invoice',
+        score: (t) => /\bGAMMA\b/.test(t.toUpperCase()) ? 2 : 0,
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+      delta: {
+        company: 'Delta Co',
+        type: 'delta_invoice',
+        score: (t) => /\bDELTA\b/.test(t.toUpperCase()) ? 2 : 0,
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+      epsilon: {
+        company: 'Epsilon LLC',
+        type: 'epsilon_invoice',
+        score: (t) => /\bEPSILON\b/.test(t.toUpperCase()) ? 2 : 0,
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+      zeta: {
+        company: 'Zeta Systems',
+        type: 'zeta_invoice',
+        score: (t) => /\bZETA\b/.test(t.toUpperCase()) ? 2 : 0,
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+      theta: {
+        company: 'Theta Enterprises',
+        type: 'theta_invoice',
+        score: (t) => /\bTHETA\b/.test(t.toUpperCase()) ? 2 : 0,
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+      iota: {
+        company: 'Iota Logistics',
+        type: 'iota_invoice',
+        score: (t) => /\bIOTA\b/.test(t.toUpperCase()) ? 2 : 0,
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+      kappa: {
+        company: 'Kappa Holdings',
+        type: 'kappa_invoice',
+        score: (t) => /\bKAPPA\b/.test(t.toUpperCase()) ? 2 : 0,
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+      lambda: {
+        company: 'Lambda Products',
+        type: 'lambda_invoice',
+        score: (t) => /\bLAMBDA\b/.test(t.toUpperCase()) ? 2 : 0,
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+      generic: {
+        company: 'Unknown',
+        type: 'generic',
+        score: (t) => {
+          const hasInvoice = /(?:Invoice|Inv(?:oice)?)\s*(?:#|No\.?|No)?\s*[:#]?\s*\S+/i.test(t)
+          const hasDate = /\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4}/.test(t)
+          const hasTotal = /\$\s*[0-9,.]+/.test(t)
+          return hasInvoice && hasDate && hasTotal ? 1 : 0
+        },
+        parse: (t) => ({ invoice: parseInvoice(t), date: parseDate(t), total: parseTotal(t) }),
+      },
+    }
+
+    const samples = [
+      { name: 'Acme Corp Sample', url: './public/samples/acme-bill.svg' },
+      { name: 'Beta Ltd Sample', url: './public/samples/beta-bill.svg' },
+      { name: 'Gamma Inc Sample', url: './public/samples/gamma-bill.svg' },
+      { name: 'Delta Co Sample', url: './public/samples/delta-bill.svg' },
+      { name: 'Epsilon LLC Sample', url: './public/samples/epsilon-bill.svg' },
+      { name: 'Zeta Systems Sample', url: './public/samples/zeta-bill.svg' },
+      { name: 'Theta Enterprises Sample', url: './public/samples/theta-bill.svg' },
+      { name: 'Iota Logistics Sample', url: './public/samples/iota-bill.svg' },
+      { name: 'Kappa Holdings Sample', url: './public/samples/kappa-bill.svg' },
+      { name: 'Lambda Products Sample', url: './public/samples/lambda-bill.svg' },
+    ]
+
+    const ensureRasterImage = async (src) => {
+      if (!src.toLowerCase().endsWith('.svg')) return src
+      return new Promise((resolve, reject) => {
+        const img = new Image()
+        img.onload = () => {
+          const canvas = document.createElement('canvas')
+          canvas.width = img.naturalWidth || 800
+          canvas.height = img.naturalHeight || 600
+          const ctx = canvas.getContext('2d')
+          ctx.drawImage(img, 0, 0)
+          resolve(canvas)
+        }
+        img.onerror = () => reject(new Error('Failed to load SVG image'))
+        img.src = src
+      })
+    }
+
+    const App = () => {
+      const [file, setFile] = useState('')
+      const [previewUrl, setPreviewUrl] = useState('')
+      const [busy, setBusy] = useState(false)
+      const [progress, setProgress] = useState(0)
+      const [records, setRecords] = useState([])
+      const [selectedCompanies, setSelectedCompanies] = useState([])
+      const [excelMessage, setExcelMessage] = useState('No Excel DB loaded')
+      const [excelHandle, setExcelHandle] = useState(null)
+      const [useLocalExcelDB, setUseLocalExcelDB] = useState(false)
+      const [selectedFileIsSvg, setSelectedFileIsSvg] = useState(false)
+
+      useEffect(() => {
+        const saved = localStorage.getItem('bill_scanner_records')
+        if (saved) setRecords(JSON.parse(saved))
+      }, [])
+
+      const verifyPermission = async (handle, mode = 'readwrite') => {
+        if (!handle.requestPermission || !handle.queryPermission) return true
+        const options = { mode }
+        if ((await handle.queryPermission(options)) === 'granted') return true
+        if ((await handle.requestPermission(options)) === 'granted') return true
+        return false
+      }
+
+      const saveWorkbookToHandle = async (handle, wb) => {
+        if (!handle) return
+        if (!(await verifyPermission(handle, 'readwrite'))) {
+          alert('Permission denied for Excel DB file.')
+          return
+        }
+        const data = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+        const writable = await handle.createWritable()
+        await writable.write(data)
+        await writable.close()
+      }
+
+      const saveWorkbookToLocalStorage = async (wb) => {
+        if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
+          wb = createEmptyWorkbook()
+        }
+        const base64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' })
+        localStorage.setItem('bill_scanner_excel_db', base64)
+        setExcelMessage('Excel DB synced in local storage')
+      }
+
+      const saveWorkbook = async (wb) => {
+        if (!wb || !wb.SheetNames || wb.SheetNames.length === 0) {
+          wb = createEmptyWorkbook()
+        }
+        if (excelHandle) {
+          await saveWorkbookToHandle(excelHandle, wb)
+          setExcelMessage(`Excel DB synced to ${excelHandle.name || 'file'}`)
+        } else {
+          await saveWorkbookToLocalStorage(wb)
+        }
+      }
+
+      useEffect(() => {
+        localStorage.setItem('bill_scanner_records', JSON.stringify(records))
+        if (excelHandle || useLocalExcelDB) {
+          const persist = async () => {
+            let wb
+            const groups = {}
+            records.forEach((r) => {
+              const sheet = `${r.company}`.slice(0, 31)
+              groups[sheet] = groups[sheet] || []
+              groups[sheet].push({ company: r.company, type: r.type, ...r.fields, rawText: r.rawText })
+            })
+            if (Object.keys(groups).length === 0) {
+              wb = createEmptyWorkbook()
+            } else {
+              wb = XLSX.utils.book_new()
+              Object.entries(groups).forEach(([name, rows]) => {
+                XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), name)
+              })
+            }
+            await saveWorkbook(wb)
+          }
+          persist()
+        }
+      }, [records, excelHandle, useLocalExcelDB])
+
+      const companies = useMemo(() => {
+        return Array.from(new Set(records.map((r) => r.company))).map((c) => ({ label: c, value: c }))
+      }, [records])
+
+      const filtered = useMemo(() => {
+        if (!selectedCompanies.length) return records
+        const vals = selectedCompanies.map((o) => o.value)
+        return records.filter((r) => vals.includes(r.company))
+      }, [records, selectedCompanies])
+
+      const handleSampleChange = (event) => {
+        const url = event.target.value
+        setFile(url)
+        setPreviewUrl(url)
+        setSelectedFileIsSvg(url.toLowerCase().endsWith('.svg'))
+      }
+
+      const handleFileChange = (event) => {
+        const file = event.target.files?.[0]
+        if (!file) return
+        const url = URL.createObjectURL(file)
+        setFile(url)
+        setPreviewUrl(url)
+        setSelectedFileIsSvg(file.type === 'image/svg+xml' || file.name.toLowerCase().endsWith('.svg'))
+      }
+
+      const runOCR = async (imageUrl) => {
+        setBusy(true)
+        setProgress(0)
+        const worker = await Tesseract.createWorker({
+          logger: (m) => {
+            if (m.status === 'recognizing text' && m.progress) {
+              setProgress(Math.round(m.progress * 100))
+            }
+          },
+        })
+        await worker.loadLanguage('eng')
+        await worker.initialize('eng')
+        let image = imageUrl
+        if (selectedFileIsSvg || imageUrl.toLowerCase().endsWith('.svg')) {
+          image = await ensureRasterImage(imageUrl)
+        }
+        const { data } = await worker.recognize(image)
+        await worker.terminate()
+        setProgress(100)
+        setBusy(false)
+        return data.text
+      }
+
+      const handleScan = async () => {
+        if (!file) return alert('Pick a sample or upload an image first')
+        try {
+          const text = await runOCR(file)
+          const results = Object.keys(parsers).map((key) => ({
+            key,
+            parsed: parsers[key].parse(text),
+            score: parsers[key].score(text),
+          }))
+          results.sort((a, b) => b.score - a.score)
+          const best = results[0]
+          if (!best || best.score <= 0) {
+            alert('Could not detect bill type. Try another sample or upload a clearer image.')
+            return
+          }
+          setRecords((prev) => [{
+            id: `${Date.now()}-${Math.random()}`,
+            company: parsers[best.key].company,
+            type: parsers[best.key].type,
+            fields: best.parsed,
+            rawText: text,
+          }, ...prev])
+        } catch (error) {
+          alert('OCR failed: ' + (error.message || error))
+          setBusy(false)
+        }
+      }
+
+      const handleDelete = (id) => setRecords((prev) => prev.filter((r) => r.id !== id))
+      const handleClear = () => {
+        if (confirm('Clear all scanned records?')) setRecords([])
+      }
+
+      const createEmptyWorkbook = () => {
+        const wb = XLSX.utils.book_new()
+        const ws = XLSX.utils.aoa_to_sheet([['company', 'type', 'invoice', 'date', 'total', 'rawText']])
+        XLSX.utils.book_append_sheet(wb, ws, 'Sheet1')
+        return wb
+      }
+
+      const workbookToRecords = (wb) => {
+        const result = []
+        wb.SheetNames.forEach((sheetName) => {
+          const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { defval: '' })
+          rows.forEach((row) => {
+            result.push({
+              id: `${Date.now()}-${Math.random()}`,
+              company: row.company || sheetName,
+              type: row.type || 'excel',
+              fields: {
+                invoice: row.invoice || '',
+                date: row.date || '',
+                total: row.total || '',
+              },
+              rawText: row.rawText || '',
+            })
+          })
+        })
+        return result
+      }
+
+      const openLocalExcelDB = async () => {
+        const stored = localStorage.getItem('bill_scanner_excel_db')
+        setExcelHandle(null)
+        setUseLocalExcelDB(true)
+        if (!stored) {
+          const wb = createEmptyWorkbook()
+          await saveWorkbookToLocalStorage(wb)
+          setRecords([])
+          setExcelMessage('Created new local Excel DB')
+          return
+        }
+        const wb = XLSX.read(stored, { type: 'base64' })
+        const imported = workbookToRecords(wb)
+        if (records.length > 0 && !confirm('Replace existing records with stored Excel DB records?')) {
+          setRecords((prev) => [...imported, ...prev])
+        } else {
+          setRecords(imported)
+        }
+        setExcelMessage('Loaded local Excel DB')
+      }
+
+      const handleUseExcelDB = async () => {
+        if (window.showSaveFilePicker) {
+          try {
+            const handle = await window.showSaveFilePicker({
+              suggestedName: 'bills_db.xlsx',
+              types: [
+                {
+                  description: 'Excel Workbook',
+                  accept: {
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+                  },
+                },
+              ],
+            })
+            if (!handle) return
+            setExcelHandle(handle)
+            setUseLocalExcelDB(false)
+            const file = await handle.getFile()
+            if (!file || file.size === 0) {
+              const wb = createEmptyWorkbook()
+              await saveWorkbookToHandle(handle, wb)
+              setRecords([])
+              setExcelMessage(`Created new Excel DB: ${handle.name || 'bills_db.xlsx'}`)
+              return
+            }
+            const data = await file.arrayBuffer()
+            const wb = XLSX.read(data, { type: 'array' })
+            const imported = workbookToRecords(wb)
+            if (records.length > 0 && !confirm('Replace existing records with stored Excel DB records?')) {
+              setRecords((prev) => [...imported, ...prev])
+            } else {
+              setRecords(imported)
+            }
+            setExcelMessage(`Loaded Excel DB: ${handle.name || 'file'}`)
+          } catch (err) {
+            console.warn('Excel DB open canceled or failed', err)
+            await openLocalExcelDB()
+          }
+        } else if (window.showOpenFilePicker) {
+          try {
+            const [handle] = await window.showOpenFilePicker({
+              multiple: false,
+              types: [
+                {
+                  description: 'Excel Workbook',
+                  accept: {
+                    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'],
+                  },
+                },
+              ],
+            })
+            if (!handle) return
+            setExcelHandle(handle)
+            setUseLocalExcelDB(false)
+            const file = await handle.getFile()
+            if (!file || file.size === 0) {
+              const wb = createEmptyWorkbook()
+              await saveWorkbookToHandle(handle, wb)
+              setRecords([])
+              setExcelMessage(`Created new Excel DB: ${handle.name || 'bills_db.xlsx'}`)
+              return
+            }
+            const data = await file.arrayBuffer()
+            const wb = XLSX.read(data, { type: 'array' })
+            const imported = workbookToRecords(wb)
+            if (records.length > 0 && !confirm('Replace existing records with stored Excel DB records?')) {
+              setRecords((prev) => [...imported, ...prev])
+            } else {
+              setRecords(imported)
+            }
+            setExcelMessage(`Loaded Excel DB: ${handle.name || 'file'}`)
+          } catch (err) {
+            console.warn('Excel DB open canceled or failed', err)
+            await openLocalExcelDB()
+          }
+        } else {
+          await openLocalExcelDB()
+        }
+      }
+
+      return (
+        React.createElement('div', { className: 'app' },
+          React.createElement('header', { className: 'panel' },
+            React.createElement('h1', null, 'Bill Scanner App'),
+            React.createElement('p', null, 'Scan or upload sample bills, parse key fields, and use Excel as a local database.'),
+          ),
+
+          React.createElement('section', { className: 'panel' },
+            React.createElement('div', { className: 'controls' },
+              React.createElement('div', null,
+                React.createElement('label', null, 'Pick sample:'),
+                React.createElement('select', { value: file, onChange: handleSampleChange },
+                  React.createElement('option', { value: '' }, '-- none --'),
+                  samples.map((sample) => React.createElement('option', { key: sample.url, value: sample.url }, sample.name)),
+                ),
+              ),
+              React.createElement('div', null,
+                React.createElement('label', null, 'Or upload image:'),
+                React.createElement('input', { type: 'file', accept: 'image/*', onChange: handleFileChange }),
+              ),
+              React.createElement('div', null,
+                React.createElement('button', { onClick: handleScan, disabled: busy || !file }, busy ? `Scanning ${progress}%` : 'Scan'),
+              ),
+            ),
+            React.createElement('div', { className: 'preview' },
+              previewUrl ? React.createElement('img', { src: previewUrl, alt: 'preview' }) : React.createElement('div', { style: { padding: '2rem', textAlign: 'center', color: '#888' } }, 'No image selected'),
+            ),
+          ),
+
+          React.createElement('section', { className: 'panel' },
+            React.createElement('div', { style: { display: 'flex', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' } },
+              React.createElement('div', { style: { flex: '1 0 240px' } },
+                React.createElement('label', null, 'Filter by company:'),
+                React.createElement('select', {
+                  multiple: true,
+                  size: Math.min(5, companies.length || 5),
+                  value: selectedCompanies.map((o) => o.value),
+                  onChange: (event) => {
+                    const values = Array.from(event.target.selectedOptions).map((opt) => opt.value)
+                    setSelectedCompanies(companies.filter((c) => values.includes(c.value)))
+                  },
+                  style: { width: '100%', minHeight: '120px' },
+                },
+                  companies.map((company) => React.createElement('option', { key: company.value, value: company.value }, company.label)),
+                ),
+              ),
+              React.createElement('div', null,
+                React.createElement('button', { type: 'button', onClick: handleUseExcelDB }, 'Use Excel DB'),
+                React.createElement('div', { className: 'status-line' }, excelMessage),
+              ),
+              React.createElement('div', { className: 'row-actions' },
+                React.createElement('button', { type: 'button', onClick: handleClear, disabled: records.length === 0 }, 'Clear'),
+              ),
+            ),
+
+            React.createElement('div', { className: 'table-wrap' },
+              React.createElement('table', null,
+                React.createElement('thead', null,
+                  React.createElement('tr', null,
+                    ['Company', 'Type', 'Invoice', 'Date', 'Total', 'Raw text (preview)', 'Action'].map((header) => React.createElement('th', { key: header }, header)),
+                  ),
+                ),
+                React.createElement('tbody', null,
+                  filtered.map((r) => React.createElement('tr', { key: r.id },
+                    React.createElement('td', null, r.company),
+                    React.createElement('td', null, r.type),
+                    React.createElement('td', null, r.fields.invoice),
+                    React.createElement('td', null, r.fields.date),
+                    React.createElement('td', null, r.fields.total),
+                    React.createElement('td', null, React.createElement('pre', null, r.rawText.slice(0, 150))),
+                    React.createElement('td', null,
+                      React.createElement('button', { type: 'button', onClick: () => handleDelete(r.id) }, 'Delete')
+                    ),
+                  )),
+                ),
+              ),
+            ),
+          ),
+          React.createElement('footer', { className: 'panel' },
+            React.createElement('p', null, 'Standalone HTML version of the Bill Scanner app.'),
+          ),
+        )
+      )
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App))
+  </script>
+</body>
+</html>
