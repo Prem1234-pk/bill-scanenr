@@ -1,0 +1,25 @@
+body {
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial;
+  margin: 0;
+  padding: 0 1rem 2rem 1rem;
+  color: #111;
+}
+header {
+  margin-top: 1rem;
+}
+.app header h1 {
+  margin: 0;
+}
+.uploader, .dashboard {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border: 1px solid #eee;
+  border-radius: 8px;
+}
+.controls { display:flex; gap:1rem; align-items:center; }
+.preview { margin-top: 1rem; }
+.preview img { max-width: 420px; border:1px solid #ddd }
+.table-wrap { margin-top: 1rem; overflow:auto }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #ddd; padding: 8px; text-align: left }
+.placeholder { width:420px; height:200px; display:flex; align-items:center; justify-content:center; color:#777; border:1px dashed #ccc }
