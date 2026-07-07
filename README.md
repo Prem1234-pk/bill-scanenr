@@ -16,3 +16,71 @@ What it includes:
 - public/samples/: two sample bill SVGs you can scan
 
 If you want actual AI-based field extraction (LLM-based), consider adding a secure backend or using a user-provided API key carefully, because calling LLM APIs directly from the browser exposes the key.
+
+
+Provide
+
+Step 1: Build your application
+npm run build
+
+This creates:
+
+dist/
+├── index.html
+└── assets/
+Step 2: Copy the dist folder
+
+Copy it to the new Windows machine, for example:
+
+D:\BillScanner\
+    ├── index.html
+    └── assets\
+Step 3: Install Node.js (one-time)
+
+Download and install Node.js (LTS).
+
+This installs:
+
+Node.js
+npm
+npx
+
+No React or Vite installation is needed on the client machine.
+
+Verify:
+
+node -v
+npm -v
+Step 4: Start a simple web server
+
+Open Command Prompt.
+
+Go to the folder:
+
+cd D:\BillScanner
+
+Run:
+
+npx serve .
+
+If prompted:
+
+Need to install the following packages:
+serve
+
+Type:
+
+y
+
+You will see something like:
+
+Serving!
+
+Local: http://localhost:3000
+Step 5: Open the browser
+
+Go to:
+
+http://localhost:3000
+
+Your application will run.
