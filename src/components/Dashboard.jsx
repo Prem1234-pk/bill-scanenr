@@ -13,6 +13,8 @@ export default function Dashboard({ records, setRecords }) {
   const [excelHandle, setExcelHandle] = useState(null)
   const [excelMessage, setExcelMessage] = useState('No Excel DB connected')
   const [useLocalExcelDB, setUseLocalExcelDB] = useState(false)
+  const [excelDBReady, setExcelDBReady] = useState(false)
+  const [skipNextPersist, setSkipNextPersist] = useState(false)
 
   const filtered = useMemo(() => {
     if (!selectedCompanies || selectedCompanies.length === 0) return records
@@ -102,9 +104,14 @@ export default function Dashboard({ records, setRecords }) {
   }
 
   useEffect(() => {
+    if (!excelDBReady) return
     if (!excelHandle && !useLocalExcelDB) return
+    if (skipNextPersist) {
+      setSkipNextPersist(false)
+      return
+    }
     persistRecordsToExcel(records)
-  }, [records, excelHandle, useLocalExcelDB])
+  }, [records, excelHandle, useLocalExcelDB, excelDBReady, skipNextPersist])
 
   const workbookToRecords = (wb) => {
     const result = []
@@ -134,10 +141,17 @@ export default function Dashboard({ records, setRecords }) {
       return null
     }
     const data = await file.arrayBuffer()
-    return XLSX.read(data, { type: 'array' })
+    try {
+      return XLSX.read(data, { type: 'array' })
+    } catch (err) {
+      console.warn('Failed to parse Excel file from handle', err)
+      throw err
+    }
   }
 
   const handleOpenExcelDB = async () => {
+    setExcelDBReady(false)
+    setSkipNextPersist(false)
     const openPickerAvailable = !!window.showOpenFilePicker
     const savePickerAvailable = !!window.showSaveFilePicker
 
@@ -159,23 +173,24 @@ export default function Dashboard({ records, setRecords }) {
         if (!wb) {
           const empty = createEmptyWorkbook()
           await saveWorkbookToHandle(handle, empty)
+          setRecords([])
           setExcelHandle(handle)
           setUseLocalExcelDB(false)
-          setRecords([])
-          syncExcelStatus(true)
           setExcelMessage(`Created new Excel DB: ${handle.name || 'bills_db.xlsx'}`)
+          setSkipNextPersist(true)
+          setExcelDBReady(true)
           return
         }
         const imported = workbookToRecords(wb)
+        const nextRecords = records.length > 0 && !confirm('Replace existing records with imported Excel DB records?')
+          ? [...imported, ...records]
+          : imported
+        setSkipNextPersist(true)
+        setRecords(nextRecords)
         setExcelHandle(handle)
         setUseLocalExcelDB(false)
-        syncExcelStatus(true)
-        if (records.length > 0 && !confirm('Replace existing records with imported Excel DB records?')) {
-          setRecords((prev) => [...imported, ...prev])
-        } else {
-          setRecords(imported)
-        }
         setExcelMessage(`Loaded Excel DB: ${handle.name || 'file'}`)
+        setExcelDBReady(true)
       } catch (err) {
         console.warn('Excel DB open canceled or failed', err)
       }
@@ -200,23 +215,24 @@ export default function Dashboard({ records, setRecords }) {
         if (!wb) {
           const empty = createEmptyWorkbook()
           await saveWorkbookToHandle(handle, empty)
+          setRecords([])
           setExcelHandle(handle)
           setUseLocalExcelDB(false)
-          setRecords([])
-          syncExcelStatus(true)
           setExcelMessage(`Created new Excel DB: ${handle.name || 'bills_db.xlsx'}`)
+          setSkipNextPersist(true)
+          setExcelDBReady(true)
           return
         }
         const imported = workbookToRecords(wb)
+        const nextRecords = records.length > 0 && !confirm('Replace existing records with imported Excel DB records?')
+          ? [...imported, ...records]
+          : imported
+        setSkipNextPersist(true)
+        setRecords(nextRecords)
         setExcelHandle(handle)
         setUseLocalExcelDB(false)
-        syncExcelStatus(true)
-        if (records.length > 0 && !confirm('Replace existing records with imported Excel DB records?')) {
-          setRecords((prev) => [...imported, ...prev])
-        } else {
-          setRecords(imported)
-        }
         setExcelMessage(`Loaded Excel DB: ${handle.name || 'file'}`)
+        setExcelDBReady(true)
       } catch (err) {
         console.warn('Excel DB open canceled or failed', err)
       }
@@ -231,9 +247,24 @@ export default function Dashboard({ records, setRecords }) {
       await saveWorkbookToLocalStorage(wb)
       setRecords([])
       setExcelMessage('Created new local Excel DB')
+      setSkipNextPersist(true)
+      setExcelDBReady(true)
       return
     }
-    const wb = XLSX.read(stored, { type: 'base64' })
+    let wb
+    try {
+      wb = XLSX.read(stored, { type: 'base64' })
+    } catch (err) {
+      console.warn('Failed to parse local Excel DB from storage', err)
+      const empty = createEmptyWorkbook()
+      await saveWorkbookToLocalStorage(empty)
+      setRecords([])
+      setUseLocalExcelDB(true)
+      setSkipNextPersist(true)
+      setExcelMessage('Reset corrupted local Excel DB and created a new one')
+      setExcelDBReady(true)
+      return
+    }
     const imported = workbookToRecords(wb)
     if (records.length > 0 && !confirm('Replace existing records with local Excel DB records?')) {
       setRecords((prev) => [...imported, ...prev])
@@ -241,6 +272,8 @@ export default function Dashboard({ records, setRecords }) {
       setRecords(imported)
     }
     setExcelMessage('Loaded local Excel DB')
+    setSkipNextPersist(true)
+    setExcelDBReady(true)
   }
 
   const removeRecord = async (id) => {
